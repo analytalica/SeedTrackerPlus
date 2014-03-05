@@ -1,0 +1,360 @@
+using System;
+using System.IO;
+using System.Text;
+using System.Reflection;
+using System.Collections.Generic;
+using System.Data;
+using System.Text.RegularExpressions;
+using System.Threading;
+
+using PRoCon.Core;
+using PRoCon.Core.Plugin;
+using PRoCon.Core.Plugin.Commands;
+using PRoCon.Core.Players;
+
+namespace PRoConEvents
+{
+    public class SeedTracker : PRoConPluginAPI, IPRoConPluginInterface
+    {
+
+
+        private DateTime LogStartDateTime;
+        private CServerInfo ServerData;
+        private List<GameClient> Seeders = new List<GameClient>();
+        private String FilePath;
+        private String logText;
+        private bool ContinueLogging = true;
+
+        public enum MessageType { Warning, Error, Exception, Normal, Debug };
+
+        private bool DebugEnabled;
+        private bool AddNewClient;
+        private bool ListNeedsUpdate = true;
+        private String SoldierToAdd;
+
+        private uint LowerPopThreshold = 16;
+        private uint UpperPopThreshold = 64;
+        private String Suffix = "Pure";
+
+        private String SeederPeriodStart;
+        private String SeederPeriodEnd;
+
+        public SeedTracker()
+        {
+            
+        }
+
+        public class GameClient
+        {
+
+            private CPlayerInfo playerData = null;
+
+
+            public String Name { get { return playerData.SoldierName; } }
+            public CPlayerInfo PlayerData { get { return playerData; } set { if (value != null) playerData = value; } }
+
+
+            public GameClient(CPlayerInfo playerInfo)
+            {
+                playerData = playerInfo;
+            }
+        }
+
+
+        public String FormatMessage(String msg, MessageType type)
+        {
+            String prefix = "[^b" + GetPluginName() + "^n] ";
+
+            if (type.Equals(MessageType.Warning))
+                prefix += "^1^bWARNING^0^n: ";
+            else if (type.Equals(MessageType.Error))
+                prefix += "^1^bERROR^0^n: ";
+            else if (type.Equals(MessageType.Exception))
+                prefix += "^1^bEXCEPTION^0^n: ";
+            else if (type.Equals(MessageType.Debug))
+                prefix += "^1^bDEBUG^0^n: ";
+
+            return prefix + msg;
+        }
+
+
+        public void LogWrite(String msg)
+        {
+            this.ExecuteCommand("procon.protected.pluginconsole.write", msg);
+        }
+
+        public void ConsoleWrite(String msg, MessageType type)
+        {
+            if (type == MessageType.Debug && DebugEnabled)
+                LogWrite(FormatMessage(msg, type));
+            else if (type != MessageType.Debug)
+            {
+                LogWrite(FormatMessage(msg, type));
+            }
+        }
+
+        public void ConsoleWrite(String msg)
+        {
+            ConsoleWrite(msg, MessageType.Normal);
+        }
+
+        public void ConsoleWarn(String msg)
+        {
+            ConsoleWrite(msg, MessageType.Warning);
+        }
+
+        public void ConsoleError(String msg)
+        {
+            ConsoleWrite(msg, MessageType.Error);
+        }
+
+        public void ConsoleException(String msg)
+        {
+            ConsoleWrite(msg, MessageType.Exception);
+        }
+
+        public void DebugWrite(String msg, int level)
+        {
+            if (DebugEnabled)
+            {
+                ConsoleWrite(msg, MessageType.Debug);
+            }
+        }
+
+
+        public string GetPluginName()
+        {
+            return "SeedTracker";
+        }
+
+        public string GetPluginVersion()
+        {
+            return "0.2.0";
+        }
+
+        public string GetPluginAuthor()
+        {
+            return "LilAznCutie69x0 + Analytalica";
+        }
+
+        public string GetPluginWebsite()
+        {
+            return "purebattlefield.org";
+        }
+
+        public string GetPluginDescription()
+        {
+            return @"
+        <p>This plugin will log players that play on the server during seeding periods. These periods are defined by an upper 
+            and lower population threshold. The seeding periods begin when the lower population threshold is met. Anytime the 
+            population reaches the upper population threshold, the seeding period will end and the list of seeders
+            will be added to the log. Each line in the log contains: The seeding period start time and date, the seeding period end time
+            and date, the lower population threshold, the upper population threshold followed by the list of players present
+            during that specific seeding period. Each week a new log file will be generated. Log files are named:<br/>
+            <strong>SeedTracker_[DATE_OF_LAST_SATURDAY]_[LOG SUFFIX in settings].log</strong>
+        </p>
+        <p>This plugin contains 3 configurable values: Lower Population Threshold, Upper Population Threshold and the log<br/>
+            suffix. All logs are stored in the Logs\SeedTracker folder found in your root procon directory.</p>
+        
+        ";
+        }
+
+        public List<CPluginVariable> GetDisplayPluginVariables()
+        {
+            List<CPluginVariable> lstReturn = new List<CPluginVariable>();
+
+            lstReturn.Add(new CPluginVariable("Lower Population Threshold", typeof (Int32), LowerPopThreshold));
+            lstReturn.Add(new CPluginVariable("Upper Population Threshold", typeof(Int32), UpperPopThreshold));
+            lstReturn.Add(new CPluginVariable("Log Suffix", typeof(String), Suffix));
+            lstReturn.Add(new CPluginVariable("Debug Enabled?", typeof(bool), DebugEnabled));
+
+            return lstReturn;
+        }
+
+        public List<CPluginVariable> GetPluginVariables()
+        {
+            return GetDisplayPluginVariables();
+        }
+
+        public void SetPluginVariable(String strVariable, String strValue)
+        {
+            uint tempOut = 0;
+            bool tempBool = true;
+
+            if (strVariable.Contains("Lower Population Threshold") && uint.TryParse(strValue, out tempOut))
+                LowerPopThreshold = tempOut;
+            else if (strVariable.Contains("Upper Population Threshold") && uint.TryParse(strValue, out tempOut))
+                UpperPopThreshold = tempOut;
+            else if (strVariable.Contains("Log Suffix"))
+                Suffix = strValue;
+            else if (strVariable.Contains("Debug Enabled?") && bool.TryParse(strValue, out tempBool))
+                DebugEnabled = tempBool;
+        }
+
+        public void OnPluginLoaded(String strHostName, String strPort, String strProconVersion)
+        {
+            this.RegisterEvents(this.GetType().Name, "OnPlayerJoin", "OnPlayerLeft", "OnListPlayers", "OnServerInfo");
+
+        }
+
+        public void OnPluginEnable()
+        {
+            ConsoleWrite("[SeedTracker] Plugin enabled.", MessageType.Normal);
+        }
+
+        public void OnPluginDisable()
+        {
+            ConsoleWrite("[SeedTracker] Plugin disabled.", MessageType.Normal);
+        }
+
+        public override void OnListPlayers(List<CPlayerInfo> lstPlayers, CPlayerSubset cpsSubset)
+        {
+            // If player count is equal to lower threshold, start seeding period
+            if (ServerData.PlayerCount == this.LowerPopThreshold)
+            {
+                Seeders.Clear();
+                this.SeederPeriodStart = DateTime.Now.ToString("yyyyMMdd HH:mm:ss");
+                CreateSeederList(lstPlayers);
+            }
+
+            // If player count reaches upper threshold, log the seeders to file and end current seeding period
+            if (Seeders.Count > 0 && this.SeederPeriodStart != null && ServerData.PlayerCount >= this.UpperPopThreshold)
+            {
+                LogToFile();
+            }
+            
+
+        }
+
+        public override void OnServerInfo(CServerInfo serverInfo)
+        {
+            this.ServerData = serverInfo;
+        }
+
+        public void CreateSeederList(List<CPlayerInfo> lstPlayers)
+        {
+            
+            ConsoleWrite("[SeedTracker] Creating new seeder list. Period start: " + SeederPeriodStart.ToString(), MessageType.Debug);
+            foreach (CPlayerInfo player in lstPlayers)
+            {
+                GameClient newClient = new GameClient(player);
+                this.Seeders.Add(newClient);
+            }
+
+        }
+
+        public void AddNewSeeder(List<CPlayerInfo> lstPlayers, String strSoldierName)
+        {
+            
+            foreach (CPlayerInfo player in lstPlayers)
+            {
+                if (player.SoldierName.Equals(strSoldierName, StringComparison.OrdinalIgnoreCase))
+                {
+                    ConsoleWrite("[SeedTracker] Adding new player " + strSoldierName + " to seeder list. Players: " + ServerData.PlayerCount, MessageType.Debug);
+                    Seeders.Add(new GameClient(player));
+                    AddNewClient = false;
+                }
+            }
+        }
+
+        public override void OnPlayerJoin(String strSoldierName)
+        {
+            ConsoleWrite("[SeedTracker] New player " + strSoldierName + " joined.", MessageType.Debug);
+            /*if (ServerData.PlayerCount >= this.LowerPopThreshold)
+            {
+                this.AddNewClient = true;
+                this.SoldierToAdd = strSoldierName;
+            }*/
+            
+            this.ExecuteCommand("procon.protected.send", "admin.listPlayers", "all");
+
+            
+
+
+        }
+
+        public override void OnPlayerLeft(CPlayerInfo playerInfo)
+        {
+            /*if (ServerData.PlayerCount < this.LowerPopThreshold)
+            {
+                foreach (GameClient player in Seeders)
+                {
+                    if (player.Name.Equals(playerInfo.SoldierName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        this.Seeders.Remove(player);
+                        ConsoleWrite("[SeedTracker] Removing player " + player.Name + " from seeder list.", MessageType.Debug);
+
+                        if (ServerData.PlayerCount < this.LowerPopThreshold)
+                        {
+                            ConsoleWrite("Clearing seeders due to player count below population threshold.", MessageType.Debug);
+                            Seeders.Clear();
+                            SeederPeriodStart = null;
+                        }
+                    }
+                }
+            }*/
+            
+
+        }
+
+        public void LogToFile()
+        {
+            
+            ConsoleWrite("[SeedTracker] Begin logging to file.", MessageType.Debug);
+            this.SeederPeriodEnd = DateTime.Now.ToString("yyyyMMdd HH:mm:ss");
+
+            System.IO.FileInfo file = new System.IO.FileInfo("Logs\\SeedTracker\\");
+            file.Directory.Create(); 
+
+
+            StringBuilder logData =
+                new StringBuilder(SeederPeriodStart + ", " + SeederPeriodEnd + ", " + LowerPopThreshold + ", " +
+                                  UpperPopThreshold);
+            foreach (GameClient player in Seeders)
+            {
+                logData.Append("," + player.Name);
+                ConsoleWrite("Adding player " + player.Name + " to the log.", MessageType.Debug);
+            }
+
+
+            StringBuilder fileName = new StringBuilder("Logs\\SeedTracker\\SeedTracker_");
+            DateTime sunday = DateTime.Today.AddDays(-(int)DateTime.Today.DayOfWeek);
+            DateTime saturday = sunday.AddDays(-1);
+
+            fileName.Append(saturday.ToString("yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture));
+            fileName.Append("_");
+            fileName.Append(Suffix);
+            fileName.Append(".log");
+
+            this.FilePath = fileName.ToString();
+            this.logText = logData.ToString();
+            
+
+            ConsoleWrite("[SeedTracker] FilePath: " + FilePath, MessageType.Debug);
+
+            if (!File.Exists(FilePath))
+            {
+                ConsoleWrite("[SeedTracker] Creating new log file.", MessageType.Debug);
+                using(StreamWriter log = new StreamWriter(FilePath))
+                {
+                    log.WriteLine(logText);
+                }
+            }
+            else
+            {
+                using (StreamWriter log = new StreamWriter(FilePath, true))
+                {
+                    ConsoleWrite("[SeedTracker] Writing to existing log file.", MessageType.Debug);
+                    log.WriteLine(logText);
+                }
+            }
+
+            SeederPeriodStart = null;
+            Seeders.Clear();
+            ConsoleWrite("Clearing seeder count.", MessageType.Debug);
+            
+
+        }
+
+    }
+}
