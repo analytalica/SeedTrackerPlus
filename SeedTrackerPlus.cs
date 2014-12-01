@@ -115,13 +115,18 @@ namespace PRoConEvents
             if (!String.IsNullOrEmpty(logName))
             {
                 DateTime sunday = DateTime.Today.AddDays(-(int)DateTime.Today.DayOfWeek);
-                DateTime saturday = sunday.AddDays(-1);
+                //DateTime saturday = sunday.AddDays(-1);
 
-                if (DateTime.Today.DayOfWeek == DayOfWeek.Saturday)
-                {
-                    saturday = DateTime.Today;
-                }
-                String logNameTimestamped = logName.Replace("[date]", saturday.ToString("yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture));
+                //if (DateTime.Today.DayOfWeek == DayOfWeek.Saturday)
+                //{
+                //    saturday = DateTime.Today;
+                //}
+                DateTime monday = sunday.AddDays(-6);
+
+                if (DateTime.Today.DayOfWeek == DayOfWeek.Monday)
+                    monday = DateTime.Today;
+
+                String logNameTimestamped = logName.Replace("[date]", monday.ToString("yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture));
                 using (StreamWriter writeFile = new StreamWriter(logNameTimestamped, true))
                 {
                     writeFile.WriteLine(logText);
@@ -145,7 +150,7 @@ namespace PRoConEvents
 
         public string GetPluginVersion()
         {
-            return "0.3.3";
+            return "0.3.4";
         }
 
         public string GetPluginAuthor()
