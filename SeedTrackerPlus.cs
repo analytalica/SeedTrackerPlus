@@ -115,15 +115,18 @@ namespace PRoConEvents
             if (!String.IsNullOrEmpty(logName))
             {
                 this.toConsole(2, "Today: " + DateTime.Today.ToString("yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture));
-                DateTime sunday = DateTime.Today.AddDays(-(int)DateTime.Today.DayOfWeek);
-                this.toConsole(2, "Last Sunday: " + sunday.ToString("yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture));
+                //DateTime sunday = DateTime.Today.AddDays(-(int)DateTime.Today.DayOfWeek);
+                //this.toConsole(2, "Last Sunday: " + sunday.ToString("yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture));
                 //DateTime saturday = sunday.AddDays(-1);
 
                 //if (DateTime.Today.DayOfWeek == DayOfWeek.Saturday)
                 //{
                 //    saturday = DateTime.Today;
                 //}
-                DateTime monday = sunday.AddDays(-6);
+                //DateTime monday = sunday.AddDays(-6);
+
+                int[] revertToMonday = { -6, 0, -1, -2, -3, -4, -5 };
+                DateTime monday = DateTime.Today.AddDays(revertToMonday[(int)DateTime.Today.DayOfWeek]);
                 this.toConsole(2, "Last Monday: " + monday.ToString("yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture));
 
                 if (DateTime.Today.DayOfWeek == DayOfWeek.Monday)
@@ -159,7 +162,7 @@ namespace PRoConEvents
 
         public string GetPluginVersion()
         {
-            return "0.3.6";
+            return "0.3.7";
         }
 
         public string GetPluginAuthor()
